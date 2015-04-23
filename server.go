@@ -3,7 +3,6 @@ package scut
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"strings"
 )
@@ -14,7 +13,7 @@ type ConfigServer struct {
 
 func NewConfigServer(config *Config) (*ConfigServer, error) {
 	if config == nil {
-		return nil, fmt.Errorf("config is nil")
+		return nil, fmt.Errorf("config must be pointer")
 	}
 
 	server := ConfigServer{config: config}
@@ -29,21 +28,20 @@ func (server *ConfigServer) Listen(address string) error {
 func (server ConfigServer) ServeHTTP(
 	writer http.ResponseWriter, request *http.Request,
 ) {
-	path := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+	var (
+		path   = strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+		method = strings.ToUpper(request.Method)
 
-	rawBody, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		panic(err)
-	}
-	defer request.Body.Close()
+		body interface{}
+	)
 
-	var body interface{}
-	if len(rawBody) != 0 {
-		err = json.Unmarshal(rawBody, &body)
+	if method != "GET" {
+		err := json.NewDecoder(request.Body).Decode(&body)
 		if err != nil {
 			writer.WriteHeader(400)
 			return
 		}
+		defer request.Body.Close()
 	}
 
 	switch request.Method {
@@ -52,13 +50,15 @@ func (server ConfigServer) ServeHTTP(
 	case "PATCH":
 		server.handlePATCH(writer, body, path...)
 	case "PUT":
-		server.handlePUT(writer, body, path...)
+		server.handlePUT(writer, body)
 	default:
-		writer.WriteHeader(400)
+		writer.WriteHeader(405)
 	}
 }
 
-func (server *ConfigServer) handleGET(writer http.ResponseWriter, path ...string) {
+func (server *ConfigServer) handleGET(
+	writer http.ResponseWriter, path ...string,
+) {
 	var data interface{}
 
 	if len(path) == 1 && path[0] == "" {
@@ -82,7 +82,7 @@ func (server *ConfigServer) handlePATCH(
 }
 
 func (server *ConfigServer) handlePUT(
-	writer http.ResponseWriter, value interface{}, path ...string,
+	writer http.ResponseWriter, value interface{},
 ) {
 	switch root := value.(type) {
 	case map[string]interface{}:
